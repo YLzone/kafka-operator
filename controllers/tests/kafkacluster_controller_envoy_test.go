@@ -49,11 +49,13 @@ func expectEnvoy(kafkaCluster *v1beta1.KafkaCluster) {
 		"eListenerName": "test",
 		"kafka_cr":      kafkaCluster.Name,
 	}))
-	Expect(loadBalancer.Spec.Ports).To(HaveLen(1))
-	Expect(loadBalancer.Spec.Ports[0].Name).To(Equal("broker-0"))
-	Expect(loadBalancer.Spec.Ports[0].Protocol).To(Equal(corev1.ProtocolTCP))
-	Expect(loadBalancer.Spec.Ports[0].Port).To(BeEquivalentTo(11202))
-	Expect(loadBalancer.Spec.Ports[0].TargetPort.IntVal).To(BeEquivalentTo(11202))
+	Expect(loadBalancer.Spec.Ports).To(HaveLen(3))
+	for i, port := range loadBalancer.Spec.Ports {
+		Expect(port.Name).To(Equal(fmt.Sprintf("broker-%d", i)))
+		Expect(port.Protocol).To(Equal(corev1.ProtocolTCP))
+		Expect(port.Port).To(BeEquivalentTo(19090 + i))
+		Expect(port.TargetPort.IntVal).To(BeEquivalentTo(19090 + i))
+	}
 
 	var configMap corev1.ConfigMap
 	configMapName := fmt.Sprintf("envoy-config-test-%s", kafkaCluster.Name)
@@ -64,6 +66,7 @@ func expectEnvoy(kafkaCluster *v1beta1.KafkaCluster) {
 
 	expectEnvoyIngressLabels(configMap.Labels, "test", kafkaCluster.Name)
 	Expect(configMap.Data).To(HaveKey("envoy.yaml"))
+	svcTemplate := kafkaCluster.Name + "-%d." + kafkaCluster.Namespace + ".svc.cluster.local"
 	Expect(configMap.Data["envoy.yaml"]).To(Equal(fmt.Sprintf(`admin:
   accessLogPath: /tmp/admin_access.log
   address:
@@ -75,23 +78,59 @@ staticResources:
   - connectTimeout: 1s
     hosts:
     - socketAddress:
-        address: %s-0.%s.svc.cluster.local
-        portValue: 9733
+        address: %s
+        portValue: 9094
     http2ProtocolOptions: {}
     name: broker-0
+    type: STRICT_DNS
+  - connectTimeout: 1s
+    hosts:
+    - socketAddress:
+        address: %s
+        portValue: 9094
+    http2ProtocolOptions: {}
+    name: broker-1
+    type: STRICT_DNS
+  - connectTimeout: 1s
+    hosts:
+    - socketAddress:
+        address: %s
+        portValue: 9094
+    http2ProtocolOptions: {}
+    name: broker-2
     type: STRICT_DNS
   listeners:
   - address:
       socketAddress:
         address: 0.0.0.0
-        portValue: 11202
+        portValue: 19090
     filterChains:
     - filters:
       - config:
           cluster: broker-0
           stat_prefix: broker_tcp-0
         name: envoy.filters.network.tcp_proxy
-`, kafkaCluster.Name, kafkaCluster.Namespace)))
+  - address:
+      socketAddress:
+        address: 0.0.0.0
+        portValue: 19091
+    filterChains:
+    - filters:
+      - config:
+          cluster: broker-1
+          stat_prefix: broker_tcp-1
+        name: envoy.filters.network.tcp_proxy
+  - address:
+      socketAddress:
+        address: 0.0.0.0
+        portValue: 19092
+    filterChains:
+    - filters:
+      - config:
+          cluster: broker-2
+          stat_prefix: broker_tcp-2
+        name: envoy.filters.network.tcp_proxy
+`, fmt.Sprintf(svcTemplate, 0), fmt.Sprintf(svcTemplate, 1), fmt.Sprintf(svcTemplate, 2))))
 
 	var deployment appsv1.Deployment
 	deploymentName := fmt.Sprintf("envoy-test-%s", kafkaCluster.Name)
@@ -115,7 +154,17 @@ staticResources:
 	Expect(container.Ports).To(ConsistOf(
 		corev1.ContainerPort{
 			Name:          "broker-0",
-			ContainerPort: 11202,
+			ContainerPort: 19090,
+			Protocol:      "TCP",
+		},
+		corev1.ContainerPort{
+			Name:          "broker-1",
+			ContainerPort: 19091,
+			Protocol:      "TCP",
+		},
+		corev1.ContainerPort{
+			Name:          "broker-2",
+			ContainerPort: 19092,
 			Protocol:      "TCP",
 		},
 		corev1.ContainerPort{
