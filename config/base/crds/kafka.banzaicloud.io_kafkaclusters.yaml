@@ -5084,14 +5084,13 @@ spec:
                       description: ListenerStatus holds information about the address
                         of the listener
                       properties:
-                        host:
+                        address:
                           type: string
-                        port:
-                          format: int32
-                          type: integer
+                        name:
+                          type: string
                       required:
-                      - host
-                      - port
+                      - address
+                      - name
                       type: object
                     type: array
                   type: object
@@ -5103,14 +5102,13 @@ spec:
                       description: ListenerStatus holds information about the address
                         of the listener
                       properties:
-                        host:
+                        address:
                           type: string
-                        port:
-                          format: int32
-                          type: integer
+                        name:
+                          type: string
                       required:
-                      - host
-                      - port
+                      - address
+                      - name
                       type: object
                     type: array
                   type: object
